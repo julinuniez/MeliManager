@@ -1,0 +1,6 @@
+@MeliManager_HostAddress = http://localhost:5174
+
+GET {{MeliManager_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
