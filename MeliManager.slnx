@@ -1,3 +1,6 @@
 <Solution>
-  <Project Path="MeliManager/MeliManager.csproj" />
+  <Project Path="MeliManager.Core/MeliManager.Core.csproj" Id="15f878cc-d80e-405f-9f80-e917cead8444" />
+  <Project Path="MeliManager.Data/MeliManager.Data.csproj" Id="9a7bad3d-7b15-4c2a-800f-a1da76c4c661" />
+  <Project Path="MeliManager.Services/MeliManager.Services.csproj" Id="1f049b98-03fa-491d-af99-48707207de21" />
+  <Project Path="MeliManager/MeliManager.Api.csproj" />
 </Solution>
