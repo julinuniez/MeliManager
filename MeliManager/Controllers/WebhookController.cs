@@ -19,37 +19,57 @@ namespace MeliManager.Core.Controllers
     public class WebhookController : ControllerBase
     {
         private readonly VentaService _ventasService;
+        private readonly AppDbContext _context; // Agregamos el acceso a la base de datos
 
-        // Inyectamos el servicio en lugar del DbContext
-        public WebhookController(VentaService ventasService)
+        // Inyectamos ambos servicios
+        public WebhookController(VentaService ventasService, AppDbContext context)
         {
             _ventasService = ventasService;
+            _context = context;
         }
 
         [HttpPost]
         [ProducesResponseType(typeof(RespuestaWebhook), StatusCodes.Status200OK)]
-        public IActionResult RecibirNotificacion([FromBody] NotificacionMeli notificacion)
+        public async Task<IActionResult> RecibirNotificacion([FromBody] NotificacionMeli notificacion)
         {
-            // 1. Filtramos para asegurarnos de que sea un aviso de venta y no otra cosa (como una pregunta)
             if (notificacion.Topic != "orders_v2")
             {
-                return Ok(new RespuestaWebhook
-                {
-                    Mensaje = "Notificación ignorada. No es una orden."
-                });
+                return Ok(new RespuestaWebhook { Mensaje = "Ignorada. No es orden." });
             }
 
-            // 2. Extraemos los datos vitales
             long idCuentaVendedora = notificacion.UserId;
             string rutaOrden = notificacion.Resource;
 
-            // Todo: Acá llamaremos a VentaService para que busque la cuenta idCuentaVendedora
-            // en SQLite, valide el token y vaya a buscar los datos a rutaOrden.
+            try
+            {
+                // 1. Vamos a buscar la orden real a ML
+                var detallesOrden = await _ventasService.ObtenerDetallesOrden(idCuentaVendedora, rutaOrden);
 
-            // ML requiere que respondamos rápido con un 200 OK para saber que recibimos el aviso
+                // 2. Extraemos a quién le vendimos y qué le vendimos
+                long idComprador = detallesOrden.Buyer.Id;
+                string skuVendido = detallesOrden.OrderItems.FirstOrDefault()?.Item?.SellerSku ?? string.Empty;
+
+                // 3. Buscamos en tu catálogo qué mensaje le corresponde a este producto
+                var producto = await _context.Productos.FindAsync(skuVendido);
+
+                // Si le pusiste un mensaje personalizado en la base de datos usa ese, sino uno genérico
+                string textoMensaje = !string.IsNullOrEmpty(producto?.MensajePostVenta)
+                                      ? producto.MensajePostVenta
+                                      : "¡Hola! Muchas gracias por tu compra.";
+
+                // Le pasamos la ruta que guardaste en SQLite (ej: "C:\\Manuales\\alarma-moto.pdf")
+                string? rutaManual = producto?.RutaManualPdf;
+
+                await _ventasService.EnviarMensajePostVenta(idCuentaVendedora, idComprador, detallesOrden.Id, textoMensaje, rutaManual);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error procesando webhook: {ex.Message}");
+            }
+
             return Ok(new RespuestaWebhook
             {
-                Mensaje = "Aviso recibido correctamente",
+                Mensaje = "Aviso recibido, orden procesada y mensaje enviado",
                 CuentaDetectada = idCuentaVendedora,
                 RecursoA_Consultar = rutaOrden
             });
