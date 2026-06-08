@@ -1,10 +1,12 @@
 ﻿using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using System;
+using System.Collections.Generic;
 using System.Net.Http;
 using System.Text.Json;
 using System.Threading.Tasks;
 using MeliManager.Core.Models;
+using MeliManager.Core.DTOs;
 using MeliManager.Data;
 
 namespace MeliManager.Core.Controllers
@@ -25,7 +27,16 @@ namespace MeliManager.Core.Controllers
             public string Mensaje { get; set; } = string.Empty;
             public string RutaPdf { get; set; } = string.Empty;
         }
-        // Tu método original para guardar productos de forma manual
+
+        // GET: api/productos
+        [HttpGet]
+        public async Task<ActionResult<IEnumerable<Producto>>> GetProductos()
+        {
+            // Va a la base de datos real y devuelve todo tu inventario
+            return await _context.Productos.ToListAsync();
+        }
+
+        // POST: api/productos
         [HttpPost]
         public async Task<IActionResult> GuardarProducto([FromBody] Producto nuevoProducto)
         {
@@ -39,13 +50,12 @@ namespace MeliManager.Core.Controllers
             return Ok($"Producto {nuevoProducto.Sku} guardado correctamente.");
         }
 
-        // El nuevo simulador automático de importaciones
+        // POST: api/productos/calcular-costo-importacion
         [HttpPost("calcular-costo-importacion")]
         public async Task<IActionResult> CalcularYGuardarCosto(string sku, [FromBody] SimulacionImportacion datosImportacion)
         {
             try
             {
-                // 1. Vamos a buscar la cotización oficial a DolarAPI
                 using var client = new HttpClient();
                 var respuestaDolar = await client.GetAsync("https://dolarapi.com/v1/dolares/oficial");
                 var contenidoDolar = await respuestaDolar.Content.ReadAsStringAsync();
@@ -57,13 +67,9 @@ namespace MeliManager.Core.Controllers
                     return BadRequest("No se pudo obtener la cotización del dólar en este momento.");
                 }
 
-                // 2. Le inyectamos el valor actualizado a tu simulador
                 datosImportacion.TipoCambio = cotizacionOficial.Venta;
-
-                // 3. El modelo ya hizo la matemática. Extraemos el costo final redondeado.
                 decimal costoUnitarioFinal = Math.Round(datosImportacion.CostoUnitarioArs, 2);
 
-                // 4. Guardamos o actualizamos en tu base de datos SQLite
                 var producto = await _context.Productos.FindAsync(sku);
 
                 if (producto != null)
@@ -84,7 +90,6 @@ namespace MeliManager.Core.Controllers
 
                 await _context.SaveChangesAsync();
 
-                // 5. Devolvemos un reporte financiero completo
                 return Ok(new
                 {
                     Mensaje = "Costo calculado y guardado con éxito en la base de datos",
@@ -109,6 +114,7 @@ namespace MeliManager.Core.Controllers
             }
         }
 
+        // PUT: api/productos/{sku}/configurar-mensajeria
         [HttpPut("{sku}/configurar-mensajeria")]
         public async Task<IActionResult> ConfigurarMensajeria(string sku, [FromBody] ConfigurarMensajeriaDto configuracion)
         {
@@ -130,6 +136,97 @@ namespace MeliManager.Core.Controllers
                 Sku = sku,
                 RutaGuardada = producto.RutaManualPdf
             });
+        }
+
+        // NUEVO MOTOR DE SINCRONIZACIÓN DIRECTA (SIN TOKENS)
+        [HttpPost("sincronizar-mercadolibre")]
+        public async Task<IActionResult> SincronizarDesdeMercadoLibre()
+        {
+            Console.WriteLine(">>> 1. INICIANDO SINCRONIZACION DIRECTA");
+
+            // TUS IDS REALES DE MERCADO LIBRE CON EL PREFIJO MLA
+            var misProductosReales = new List<string>
+            {
+                "MLA1782914275",
+                "MLA3305622150",
+                "MLA1782914271"
+            };
+
+            try
+            {
+                using var client = new HttpClient();
+
+                // No mandamos token, pasamos como un navegador de usuario normal para evitar bloqueos
+                client.DefaultRequestHeaders.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)");
+
+                Console.WriteLine(">>> 2. Consultando tus productos reales en ML...");
+                var idsString = string.Join(",", misProductosReales);
+
+                // El endpoint /items es público, no requiere Token y nos da todo el detalle
+                var itemsResponse = await client.GetAsync($"https://api.mercadolibre.com/items?ids={idsString}");
+
+                if (!itemsResponse.IsSuccessStatusCode)
+                {
+                    return StatusCode(500, new { Error = "Error al conectar con Mercado Libre." });
+                }
+
+                var itemsData = JsonSerializer.Deserialize<List<MlItemResponse>>(
+                    await itemsResponse.Content.ReadAsStringAsync(),
+                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+                int actualizados = 0;
+                int nuevos = 0;
+
+                foreach (var itemResult in itemsData!)
+                {
+                    // Evitamos procesar si ML devolvió error en alguno de los IDs
+                    if (itemResult.Code != 200 || itemResult.Body == null) continue;
+
+                    var mlItem = itemResult.Body;
+                    var productoLocal = await _context.Productos.FindAsync(mlItem.Id);
+
+                    if (productoLocal != null)
+                    {
+                        // Modo Espejo: Actualiza tus precios y stock en tiempo real
+                        productoLocal.Nombre = mlItem.Title;
+                        productoLocal.PrecioVenta = mlItem.Price;
+                        productoLocal.Stock = mlItem.Available_quantity;
+                        productoLocal.Estado = mlItem.Status == "active" ? "publicado" : "pausado";
+                        productoLocal.ImagenUrl = mlItem.Secure_thumbnail;
+                        actualizados++;
+                    }
+                    else
+                    {
+                        // Guarda tus productos reales nuevos en SQLite local
+                        _context.Productos.Add(new Producto
+                        {
+                            Sku = mlItem.Id,
+                            Nombre = mlItem.Title,
+                            PrecioVenta = mlItem.Price,
+                            Stock = mlItem.Available_quantity,
+                            Estado = mlItem.Status == "active" ? "publicado" : "pausado",
+                            ImagenUrl = mlItem.Secure_thumbnail,
+                            FechaAlta = DateTime.UtcNow
+                        });
+                        nuevos++;
+                    }
+                }
+
+                await _context.SaveChangesAsync();
+                Console.WriteLine($">>> 3. BASE DE DATOS GUARDADA CON ÉXITO: {nuevos} Nuevos, {actualizados} Actualizados.");
+
+                return Ok(new
+                {
+                    Mensaje = "Sincronización de productos reales Exitosa",
+                    NuevosRegistrados = nuevos,
+                    PublicacionesActualizadas = actualizados
+                });
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine(">>> ERROR CRITICO: " + ex.ToString());
+                return StatusCode(500, new { Error = "Error crítico interno", Detalle = ex.Message });
+            }
         }
     }
 }

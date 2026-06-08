@@ -17,6 +17,15 @@ builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 builder.Services.AddScoped<VentaService>();
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("PermitirVue", policy =>
+    {
+        policy.WithOrigins("http://localhost:5173", "http://localhost:5174") // Los puertos clásicos de Vite
+              .AllowAnyHeader()
+              .AllowAnyMethod();
+    });
+});
 
 var app = builder.Build();
 
@@ -27,7 +36,7 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
-
+app.UseCors("PermitirVue");
 // 4. Mapear los controladores automáticamente
 app.MapControllers();
 

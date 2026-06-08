@@ -1,46 +1,51 @@
 import { ref, onMounted } from 'vue';
+import { apiClient } from '../api/apiClient';
+import Swal from 'sweetalert2';
 
 export function useCatalogo() {
   const productos = ref([]);
   const cargando = ref(true);
 
   const cargarInventario = async () => {
-    cargando.value = true;
-    
-    // Simulamos la carga desde tu futura base de datos (C#)
-    setTimeout(() => {
-      productos.value = [
-        {
-          id: 1,
-          sku: 'ALARMA-MOTO-01',
-          nombre: 'Alarma Inalámbrica con Sensor de Movimiento',
-          precioVenta: 36000,
-          stock: 30,
-          estado: 'publicado',
-          // Espacio para tus renders de alta calidad
-          imagenUrl: 'https://http2.mlstatic.com/D_NQ_NP_2X_735492-MLA46610738092_072021-F.webp'
-        },
-        {
-          id: 2,
-          sku: 'CANDADO-GPS-02',
-          nombre: 'Candado U-Lock Blindado Acero Templado',
-          precioVenta: 55000,
-          stock: 0,
-          estado: 'pausado',
-          imagenUrl: 'https://http2.mlstatic.com/D_NQ_NP_2X_811059-MLA46610738094_072021-F.webp'
-        },
-        {
-          id: 3,
-          sku: 'LINGA-ACERO-03',
-          nombre: 'Linga de Acero Trenzado 1.5m Alta Seguridad',
-          precioVenta: 18500,
-          stock: 15,
-          estado: 'publicado',
-          imagenUrl: 'https://http2.mlstatic.com/D_NQ_NP_2X_770177-MLA48113702581_112021-F.webp'
-        }
-      ];
+    try {
+      cargando.value = true;
+      const data = await apiClient.get('/productos'); 
+      productos.value = data;
+    } catch (error) {
+      console.error("Error de conexión con la API:", error);
+    } finally {
       cargando.value = false;
-    }, 600);
+    }
+  };
+
+  const sincronizarConMl = async () => {
+    try {
+      Swal.fire({
+        title: 'Sincronizando tus productos reales...',
+        allowOutsideClick: false,
+        didOpen: () => { Swal.showLoading(); }
+      });
+
+      // Llamamos directo sin enviar token ni ID
+      const resultado = await apiClient.post('/productos/sincronizar-mercadolibre');
+
+      await cargarInventario();
+
+      Swal.fire({
+        title: '¡Sincronización Exitosa!',
+        text: `${resultado.publicacionesActualizadas || 0} actualizadas y ${resultado.nuevosRegistrados || 0} nuevos.`,
+        icon: 'success',
+        confirmButtonColor: '#3483fa'
+      });
+
+    } catch (error) {
+      Swal.fire({
+        title: 'Error de Sincronización',
+        text: `Detalle: ${error.message}`,
+        icon: 'error',
+        confirmButtonColor: '#dc3545'
+      });
+    }
   };
 
   onMounted(() => {
@@ -49,6 +54,8 @@ export function useCatalogo() {
 
   return {
     productos,
-    cargando
+    cargando,
+    cargarInventario,
+    sincronizarConMl // Exportamos la función para el botón
   };
 }
