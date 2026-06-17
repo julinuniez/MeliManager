@@ -1,5 +1,7 @@
 <script setup>
 import { ref } from 'vue';
+import axios from 'axios';
+import Swal from 'sweetalert2';
 import { useCatalogo } from '../composables/useCatalogo';
 import ProductoCard from '../components/catalogo/ProductoCard.vue';
 import ProductoModal from '../components/catalogo/ProductoModal.vue';
@@ -9,10 +11,9 @@ const { productos, cargando, sincronizarConMl } = useCatalogo();
 const modalVisible = ref(false);
 const productoSeleccionado = ref(null);
 
-// Variables para tus credenciales de Mercado Libre
+// Control visual del panel de conexión y el link
 const mostrarCredenciales = ref(false);
-const mlToken = ref('');
-const mlSellerId = ref('');
+const linkGoogle = ref('');
 
 const abrirModal = (producto) => {
   productoSeleccionado.value = producto;
@@ -24,12 +25,39 @@ const cerrarModal = () => {
   setTimeout(() => { productoSeleccionado.value = null; }, 200);
 };
 
-const ejecutarSincronizacion = () => {
-  if (!mlToken.value || !mlSellerId.value) {
-    alert("Por favor, completá tu Access Token y tu Seller ID para continuar.");
-    return;
+// Función que extrae el código del link de Google y se lo manda a C#
+const procesarLinkGoogle = async () => {
+  try {
+    if (!linkGoogle.value.includes('code=')) {
+      Swal.fire('Error', 'El link no parece válido. Asegurate de copiar la URL completa de Google que contiene el "code=".', 'error');
+      return;
+    }
+
+    // Extraemos el código limpio de la URL de Google
+    const urlObjeto = new URL(linkGoogle.value);
+    const codigoExtraido = urlObjeto.searchParams.get('code');
+
+    Swal.fire({ 
+      title: 'Vinculando...', 
+      text: 'Hablando con Mercado Libre', 
+      allowOutsideClick: false,
+      didOpen: () => Swal.showLoading() 
+    });
+
+    // Se lo mandamos a tu controlador MeliAuthController (Verificá que el puerto 7200 sea el de tu C#)
+    await axios.post('https://localhost:7200/api/meliauth/intercambiar-codigo', { code: codigoExtraido });
+
+    Swal.fire('¡Conectado!', 'Ya tenés la llave maestra. Ahora podés sincronizar tu inventario.', 'success');
+    linkGoogle.value = ''; // Limpiamos el casillero
+
+  } catch (error) {
+    console.error("Error al conectar:", error);
+    Swal.fire('Error', 'No se pudo validar el código. Revisá que tu servidor C# esté corriendo.', 'error');
   }
-  sincronizarConMl(mlToken.value, mlSellerId.value);
+};
+
+const ejecutarSincronizacion = () => {
+  sincronizarConMl();
 };
 </script>
 
@@ -43,26 +71,49 @@ const ejecutarSincronizacion = () => {
       </div>
       <div class="controles">
         <button class="btn-sincronizar" @click="mostrarCredenciales = !mostrarCredenciales">
-          🔄 Sincronizar Cuenta
+          🔄 Cuenta Mercado Libre
         </button>
         <button class="btn-primario">+ Nuevo Producto</button>
       </div>
     </div>
 
     <div class="panel-credenciales" v-if="mostrarCredenciales">
-      <h3>Credenciales de Conexión de Mercado Libre</h3>
-      <div class="fila-credenciales">
-        <div class="campo">
-          <label>Seller ID (ID de Usuario)</label>
-          <input type="text" v-model="mlSellerId" placeholder="Ej: 123456789" class="input-texto" />
+      <h3>Conexión Oficial con Mercado Libre</h3>
+      
+      <div class="fila-credenciales" style="flex-direction: column; align-items: flex-start;">
+        
+        <div style="margin-bottom: 1.5rem;">
+          <p class="descripcion-auth"><strong>Paso 1:</strong> Hacé clic en este botón. Te va a pedir iniciar sesión y luego te llevará a una página de Google.</p>
+          <a 
+            href="https://auth.mercadolibre.com.ar/authorization?response_type=code&client_id=5839421422105357&redirect_uri=https://www.google.com" 
+            target="_blank"
+            class="btn-login-meli"
+          >
+            🔐 1. Iniciar Sesión en Mercado Libre
+          </a>
         </div>
-        <div class="campo token-campo">
-          <label>Access Token (Bearer)</label>
-          <input type="password" v-model="mlToken" placeholder="APP_USR-..." class="input-texto" />
+
+        <div style="width: 100%; margin-bottom: 1.5rem;">
+          <p class="descripcion-auth"><strong>Paso 2:</strong> Cuando llegues a Google, copiá la dirección completa de arriba (la que empieza con https y tiene el código) y pegala acá abajo:</p>
+          <div style="display: flex; gap: 10px; margin-top: 8px;">
+            <input 
+              type="text" 
+              v-model="linkGoogle" 
+              placeholder="https://www.google.com/?code=TG-..." 
+              style="flex: 1; padding: 12px; border-radius: 6px; border: 1px solid #ccc; font-size: 0.95rem;" 
+            />
+            <button class="btn-validar" @click="procesarLinkGoogle">Validar Código</button>
+          </div>
         </div>
-        <button class="btn-ejecutar" @click="ejecutarSincronizacion">Ejecutar Sincronización</button>
+
+        <div>
+          <p class="descripcion-auth"><strong>Paso 3:</strong> Una vez validado, ya podés descargar tus productos pausados y activos.</p>
+          <button class="btn-ejecutar" @click="ejecutarSincronizacion">
+            ⚡ 3. Sincronizar Inventario Local
+          </button>
+        </div>
+
       </div>
-      <small class="hint">Podés obtener tus credenciales temporales desde el portal de Mercado Libre Developers.</small>
     </div>
 
     <div v-if="cargando" class="estado-carga">
@@ -71,7 +122,7 @@ const ejecutarSincronizacion = () => {
     </div>
 
     <div v-else-if="productos.length === 0" class="sin-productos">
-      <p>Tu base de datos local está vacía. Desplegá el botón "Sincronizar Cuenta" para importar tus publicaciones de Mercado Libre por primera vez.</p>
+      <p>Tu base de datos local está vacía. Desplegá el botón "Cuenta Mercado Libre" para iniciar sesión e importar tus publicaciones reales por primera vez.</p>
     </div>
 
     <div v-else class="grilla-productos">
@@ -99,17 +150,20 @@ const ejecutarSincronizacion = () => {
 .btn-sincronizar { background-color: #f1f3f5; color: #333; border: 1px solid #ccc; padding: 10px 20px; border-radius: 6px; font-weight: 600; cursor: pointer; transition: background 0.2s; }
 .btn-sincronizar:hover { background-color: #e6e9ec; }
 
-/* ESTILOS DEL PANEL DE CONEXIÓN */
-.panel-credenciales { background: #fffde8; border: 1px solid #f5e0a3; padding: 1.5rem; border-radius: 8px; margin-bottom: 2rem; }
-.panel-credenciales h3 { margin: 0 0 1rem 0; font-size: 1rem; color: #7d6608; }
-.fila-credenciales { display: flex; gap: 1rem; align-items: flex-end; }
-.campo { display: flex; flex-direction: column; gap: 5px; }
-.token-campo { flex: 1; }
-.campo label { font-size: 0.85rem; font-weight: bold; color: #555; }
-.input-texto { padding: 10px; border: 1px solid #ccc; border-radius: 6px; font-size: 0.95rem; box-sizing: border-box; }
-.btn-ejecutar { background: #00a650; color: white; border: none; padding: 11px 20px; border-radius: 6px; font-weight: 600; cursor: pointer; height: 41px; }
-.btn-ejecutar:hover { background: #008741; }
-.hint { color: #7c7247; font-size: 0.8rem; display: block; margin-top: 8px; }
+/* ESTILOS DEL PANEL DE CONEXIÓN OAUTH */
+.panel-credenciales { background: #f4f7fe; border: 1px solid #ccd7f7; padding: 1.5rem; border-radius: 8px; margin-bottom: 2rem; }
+.panel-credenciales h3 { margin: 0 0 1rem 0; font-size: 1.1rem; color: #1e3a8a; }
+.descripcion-auth { margin: 0; font-size: 0.95rem; color: #4b5563; line-height: 1.5; }
+.fila-credenciales { display: flex; gap: 1.5rem; }
+
+.btn-login-meli { text-decoration: none; display: inline-flex; align-items: center; background-color: #fff159; color: #333; padding: 11px 20px; border-radius: 6px; font-weight: 600; font-size: 0.95rem; border: 1px solid #e6d830; transition: background 0.2s; cursor: pointer; margin-top: 8px;}
+.btn-login-meli:hover { background-color: #ebd913; }
+
+.btn-validar { background: #00a650; color: white; border: none; padding: 0 20px; border-radius: 6px; font-weight: 600; font-size: 0.95rem; cursor: pointer; transition: background 0.2s; }
+.btn-validar:hover { background: #008741; }
+
+.btn-ejecutar { background: #3483fa; color: white; border: none; padding: 11px 20px; border-radius: 6px; font-weight: 600; font-size: 0.95rem; cursor: pointer; transition: background 0.2s; margin-top: 8px;}
+.btn-ejecutar:hover { background: #1e6ee2; }
 
 .grilla-productos { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 1.5rem; }
 .estado-carga { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 5rem 0; color: #666; }

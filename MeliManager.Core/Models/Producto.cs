@@ -16,6 +16,7 @@ namespace MeliManager.Core.Models
         public int Stock { get; set; }
         public string Estado { get; set; } = "pausado"; // "publicado" o "pausado"
         public string ImagenUrl { get; set; } = string.Empty; // URL de tu foto de estudio generada por IA
+        public string GaleriaJson { get; set; } = "[]";
 
         // --- Datos Logísticos y Aduaneros (Simulador) ---
         public decimal Fob { get; set; }

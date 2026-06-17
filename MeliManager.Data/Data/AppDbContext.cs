@@ -10,5 +10,6 @@ namespace MeliManager.Data
         public DbSet<Producto> Productos { get; set; }
         public DbSet<Venta> Ventas { get; set; }
         public DbSet<CuentaMeli> Cuentas { get; set; }
+        public DbSet<HistorialSimulacion> HistorialSimulaciones { get; set; }   
     }
 }

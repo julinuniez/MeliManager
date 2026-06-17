@@ -3,6 +3,7 @@ using System;
 using MeliManager.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -10,9 +11,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace MeliManager.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260616174237_AgregarGaleriaFotos")]
+    partial class AgregarGaleriaFotos
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "10.0.8");
@@ -110,10 +113,6 @@ namespace MeliManager.Migrations
                         .HasColumnType("TEXT");
 
                     b.Property<decimal>("Fob")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("GaleriaJson")
-                        .IsRequired()
                         .HasColumnType("TEXT");
 
                     b.Property<string>("ImagenUrl")
